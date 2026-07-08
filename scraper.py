@@ -61,4 +61,5 @@ def scrape_movies(search_term: str, streaming_service: str = "FlixHQ") -> list[M
 
 if __name__ == "__main__":
     search_term = input("Enter search term: ").strip()
-    movies = scrape_movie(search_term)
+    movies = scrape_movies(search_term)
+    print(movies)
