@@ -84,10 +84,10 @@ class MovieLayout(discord.ui.LayoutView):
 
         container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
 
-        container.add_item(discord.ui.TextDisplay(f"### Runtime\n {movie.runtime}"))
-        container.add_item(discord.ui.TextDisplay(f"### Quality\n {movie.quality}"))
-        container.add_item(discord.ui.TextDisplay(f"### Release\n {movie.release_year}"))
-
+        container.add_item(discord.ui.TextDisplay(f"### Released:\n {movie.release_year}"))
+        container.add_item(discord.ui.TextDisplay(f"### Quality:\n {movie.quality}"))
+        container.add_item(discord.ui.TextDisplay(f"### Runtime:\n {movie.runtime}"))
+        
         container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
 
         gallery = discord.ui.MediaGallery()
@@ -147,7 +147,7 @@ class PlayButton(discord.ui.Button):
         await interaction.edit_original_response(view=self.view)
         await clear_movie_options(interaction=interaction)
         if await play_to_w2g(self.movie_url):
-            playing_text_layout = SimpleTextLayout(discord.Color.blurple(), f"# {self.movie_title}\n ### spelas nu upp!", w2g_room_url)
+            playing_text_layout = SimpleTextLayout(discord.Color.blurple(), f"# {self.movie_title}\nspelas nu upp!", w2g_room_url)
             await interaction.channel.send(view=playing_text_layout)
         else:
             await interaction.channel.send(view=SimpleTextLayout(discord.Color.red(), "## Något gick fel."))
