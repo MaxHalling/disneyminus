@@ -141,7 +141,9 @@ class PlayButton(discord.ui.Button):
         global chosen_movie_card_id
         chosen_movie_card_id = interaction.message.id
         await interaction.response.defer()
+        self.label = "✔️"
         self.style = discord.ButtonStyle.success
+        self.disabled = True
         await interaction.edit_original_response(view=self.view)
         await clear_movie_options(interaction=interaction)
         if await play_to_w2g(self.movie_url):
