@@ -199,7 +199,20 @@ async def search_movie(interaction: discord.Interaction, titel: str, streaming_s
         await interaction.followup.send(view=SimpleTextLayout(discord.Color.blurple(), f"## {random.choice(movies_found_strings)}", f"Visar resultat för '{titel}' på {streaming_service.value}"))
         # Pagination
         await pagination(interaction, 0)
-        
+
+@client.tree.command(name="help", description="Visar information och hjälp om hur botten kan användas.", guild=guild_id)
+@app_commands.choices(kommando=[
+    app_commands.Choice(name="/play", value="play"),
+    app_commands.Choice(name="/search", value="search")
+])
+async def help_command(interaction: discord.Interaction, kommando: app_commands.Choice[str] = None):
+    await interaction.response.defer()
+    if kommando is None:
+        await interaction.followup.send(view=SimpleTextLayout(discord.Color.blue(), f"# Disney-", f"Kommandon som går att använda: \n`/play`, `/search`", f"Använd `/help [kommando]` för hjälp angående det specifika kommandot."))
+    elif kommando.value == "play":
+        await interaction.followup.send(view=SimpleTextLayout(discord.Color.blue(), f"## /play", f"`/play` tar emot en länk till valfri media och spelar upp i Watch2Gether-rummet. Kan vara Youtube, FlixHQ, Lookmovie osv osv. No one really knows.", "### Exempel: \n `/play` https://youtu.be/pXMkcpJN8QI"))
+    elif kommando.value == "search":
+        await interaction.followup.send(view=SimpleTextLayout(discord.Color.blue(), f"## /search", f"`/search` tar emot en sökning av film eller serie, och ett val från listan av *streamingtjänster* och presenterar resultatet direkt i chatten.", "### Exempel: \n `/search` Jurassic Park `FlixHQ`"))
 
 async def pagination(interaction: discord.Interaction, pagination_index: int):
     current_movies = movies[pagination_index: pagination_index + page_size if pagination_index + page_size < len(movies) else len(movies)]
