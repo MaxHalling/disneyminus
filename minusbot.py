@@ -80,7 +80,7 @@ class MovieLayout(discord.ui.LayoutView):
         super().__init__()
 
         container = discord.ui.Container(accent_color=discord.Color.blurple() if movie.quality == "HD" else discord.Color.red())
-        container.add_item(discord.ui.TextDisplay(f"# {movie.title}"))
+        container.add_item(discord.ui.TextDisplay(f"# ***{movie.title}***"))
 
         container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
 
@@ -103,7 +103,7 @@ class MovieLayout(discord.ui.LayoutView):
         self.add_item(container)
 
 class SimpleTextLayout(discord.ui.LayoutView):
-    def __init__(self, color: discord.Color, *args: str):
+    def __init__(self, color: discord.Color, *args: str, footer: str = None):
         super().__init__()
         container = discord.ui.Container(accent_color=color)
         for index, text in enumerate(args, 0):
@@ -112,13 +112,21 @@ class SimpleTextLayout(discord.ui.LayoutView):
                 container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
             else:
                 container.add_item(discord.ui.TextDisplay(text))
+        if footer != None:
+            container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+            container.add_item(discord.ui.TextDisplay(f"-# {footer}"))
         self.add_item(container)
 
 class ButtonBox(discord.ui.LayoutView):
-    def __init__(self, *args: discord.ui.Button):
+    def __init__(self, *args: discord.ui.Button, label: str = None):
         super().__init__()
 
         container = discord.ui.Container(accent_color=discord.Color.blurple())
+
+        if label != None:
+            container.add_item(discord.ui.TextDisplay(f"## {label}"))
+            container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+
         line = discord.ui.ActionRow()
         for button in args:
             line.add_item(button)
@@ -147,7 +155,7 @@ class PlayButton(discord.ui.Button):
         await interaction.edit_original_response(view=self.view)
         await clear_movie_options(interaction=interaction)
         if await play_to_w2g(self.movie_url):
-            playing_text_layout = SimpleTextLayout(discord.Color.blurple(), f"# {self.movie_title}\nspelas nu upp!", w2g_room_url)
+            playing_text_layout = SimpleTextLayout(discord.Color.blurple(), f"# {self.movie_title}\nspelas nu upp!", w2g_room_url, footer=f"Ikväll är det {interaction.user.mention} som styr upp.")
             await interaction.channel.send(view=playing_text_layout)
         else:
             await interaction.channel.send(view=SimpleTextLayout(discord.Color.red(), "## Något gick fel."))
@@ -228,9 +236,7 @@ async def pagination(interaction: discord.Interaction, pagination_index: int):
                 buttonbox = ButtonBox(pagination_button, clear_button)
                 
                 if pagination_index + index == len(movies) - 1:
-                    text_layout = SimpleTextLayout(discord.Color.blurple(), f"## {random.choice(end_of_list_strings)}")
-                    await interaction.channel.send(view=text_layout)
-                    buttonbox_no_pagination = ButtonBox(clear_button)
+                    buttonbox_no_pagination = ButtonBox(clear_button, label=random.choice(end_of_list_strings))
                     await interaction.channel.send(view=buttonbox_no_pagination)
                     break
                 
