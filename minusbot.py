@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
+from requests import RequestException
 import logging
 from dotenv import load_dotenv
 import os
@@ -10,6 +11,7 @@ from scraper import scrape_movies
 import datetime
 from scraper import Movie
 import random
+from custom_exceptions import AccessDeniedError, NotFoundError
 
 load_dotenv()
 token = os.getenv("DISCORD_TOKEN")
@@ -39,11 +41,25 @@ current_page_index = 0
 movies: list[Movie] = []
 w2g_room_url = f"https://w2g.tv/en/room/?r={w2g_room_id}"
 
+flixhq_base_url = "https://flixhq.one"
+lookmovie2_base_url = "https://lookmovie2.to"
+
 no_movies_found_strings = ["Inga filmer hittades.", "Här var det tomt...", "Ska vi kolla i arkivet också?"]
 movies_found_strings = ["Här fanns det filmer!", "Bra val!", "Är ni säkra på den här?", "Ska Dias vara med och kolla film också?", "Har inte du redan sett den här Davve?", "Robin har sett ALLA de här 10+ gånger..."]
 end_of_list_strings = ["Här var det slut på det roliga...", "Slut på filmer!", "Letade ni verkligen så här långt?", "Grabbarna gräver efter guld..."]
 play_start_strings = ["Join the party!", "Dags att poppa popcorn!", "MAMMA DET BÖRJAR NU!", "Nu kör vi!", "Baller!"]
 chosen_movie_card_id = ""
+
+async def handle_play_to_w2g(interaction: discord.Interaction, link: str, message: discord.View):
+    try: 
+        await play_to_w2g(link)
+        await interaction.followup.send(view=message)
+    except NotFoundError:
+        await interaction.followup.send(view=SimpleTextLayout(discord.Color.red(), f"## 404: Not found", footer="Kolla W2G URL."))
+    except AccessDeniedError:
+        await interaction.followup.send(view=SimpleTextLayout(discord.Color.red(), f"## 403: Forbidden", footer="Kolla W2G API-key och W2G room ID."))
+    except RequestException:
+        await interaction.followup.send(view=SimpleTextLayout(discord.Color.red(), f"## Ett oväntat fel har inträffat", footer="Shit happens I guess lmao"))
 
 async def play_to_w2g(link: str):
     url = f"https://api.w2g.tv/rooms/{w2g_room_id}/sync_update"
@@ -61,32 +77,32 @@ async def play_to_w2g(link: str):
     async with aiohttp.ClientSession() as session:
         async with session.post(url, json=payload) as response:
             if response.status == 200:
-                return True
+                return
+            elif response.status == 404:
+                raise NotFoundError
+            elif response.status == 403:
+                raise AccessDeniedError
             else:
-                return False
+                raise RequestException
 
 @client.tree.command(name="play", description="Tar en media-länk startar den i Sällskapsbion", guild=guild_id)
 @app_commands.describe(media="Länk till media")
 async def play_media(interaction: discord.Interaction, media: str):
     await interaction.response.defer()
-    if await play_to_w2g(media):
-        playing_text_layout = SimpleTextLayout(discord.Color.blurple(), f"# {random.choice(play_start_strings)}", w2g_room_url)
-        await interaction.followup.send(view=playing_text_layout)
-    else:
-        await interaction.followup.send("Något gick fel.")
+    await handle_play_to_w2g(interaction, media, SimpleTextLayout(discord.Color.blurple(), f"# {random.choice(play_start_strings)}", w2g_room_url))
 
 class MovieLayout(discord.ui.LayoutView):
     def __init__(self, movie: Movie, play_button: PlayButton):
         super().__init__()
 
-        container = discord.ui.Container(accent_color=discord.Color.blurple() if movie.quality == "HD" else discord.Color.red())
+        container = discord.ui.Container(accent_color=discord.Color.blurple() if movie.quality == "HD" or movie.quality == "FHD" else discord.Color.red())
         container.add_item(discord.ui.TextDisplay(f"# ***{movie.title}***"))
 
         container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
 
         container.add_item(discord.ui.TextDisplay(f"### Released:\n {movie.release_year}"))
         container.add_item(discord.ui.TextDisplay(f"### Quality:\n {movie.quality}"))
-        container.add_item(discord.ui.TextDisplay(f"### Runtime:\n {movie.runtime}"))
+        container.add_item(discord.ui.TextDisplay(f"### Runtime:\n {movie.runtime}" if movie.runtime else f"### Rating:\n {movie.rating}/10"))
         
         container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
 
@@ -154,11 +170,7 @@ class PlayButton(discord.ui.Button):
         self.disabled = True
         await interaction.edit_original_response(view=self.view)
         await clear_movie_options(interaction=interaction)
-        if await play_to_w2g(self.movie_url):
-            playing_text_layout = SimpleTextLayout(discord.Color.blurple(), f"# {self.movie_title}\nspelas nu upp!", w2g_room_url, footer=f"Ikväll är det {interaction.user.mention} som styr upp.")
-            await interaction.channel.send(view=playing_text_layout)
-        else:
-            await interaction.channel.send(view=SimpleTextLayout(discord.Color.red(), "## Något gick fel."))
+        await handle_play_to_w2g(interaction, self.movie_url, SimpleTextLayout(discord.Color.blurple(), f"# ***{self.movie_title}***\nspelas nu upp!", w2g_room_url, footer=f"Ikväll är det {interaction.user.mention} som styr upp."))
 
 class ClearButton(discord.ui.Button):
     def __init__(self):
@@ -195,32 +207,59 @@ class PaginationButton(discord.ui.Button):
 ])
 async def search_movie(interaction: discord.Interaction, titel: str, streaming_service: app_commands.Choice[str]):
     await interaction.response.defer()
+    global flixhq_base_url
+    global lookmovie2_base_url
+    base_url = flixhq_base_url if streaming_service.value == "FlixHQ" else lookmovie2_base_url
     global chosen_movie_card_id
     chosen_movie_card_id = ""
     global movies
     if movies:
         movies.clear()
-    movies = scrape_movies(titel, streaming_service=streaming_service.value)
-    if not movies:
-        await interaction.followup.send(view=SimpleTextLayout(discord.Color.red(), f"### {random.choice(no_movies_found_strings)}"))
-    else:
-        await interaction.followup.send(view=SimpleTextLayout(discord.Color.blurple(), f"## {random.choice(movies_found_strings)}", f"Visar resultat för '{titel}' på {streaming_service.value}"))
-        # Pagination
-        await pagination(interaction, 0)
+    try:
+        movies = scrape_movies(titel, base_url, streaming_service=streaming_service.name)
+        if not movies:
+            await interaction.followup.send(view=SimpleTextLayout(discord.Color.red(), f"### {random.choice(no_movies_found_strings)}"))
+        else:
+            await interaction.followup.send(view=SimpleTextLayout(discord.Color.blurple(), f"## {random.choice(movies_found_strings)}", f"Visar resultat för '{titel}' på {streaming_service.value}"))
+            await pagination(interaction, 0)
+    except RequestException as e:
+        await interaction.followup.send(view=SimpleTextLayout(discord.Color.red(), f"## Anslutning till `{streaming_service.value}` misslyckades.", footer="Troligtvis har de tvingats byta domän igen. Använd `/help` och `/update`"))
+
+@client.tree.command(name="update", description="Uppdaterar URL som botten använder för att söka efter filmer", guild=guild_id)
+@app_commands.choices(streaming_service=[
+    app_commands.Choice(name="FlixHQ", value="FlixHQ"),
+    app_commands.Choice(name="Lookmovie2", value="Lookmovie2")
+])
+@app_commands.describe(url="Ny URL")
+async def update_url(interaction: discord.Interaction, streaming_service: app_commands.Choice[str], url: str):
+    await interaction.response.defer()
+    if streaming_service.name == "FlixHQ":
+        global flixhq_base_url
+        flixhq_base_url = url
+        await interaction.followup.send(view=SimpleTextLayout(discord.Color.green(), f"## `{streaming_service.name}` URL har ändrats till: `{url}`", footer="Don't let them catch up"))
+    elif streaming_service.name == "Lookmovie2":
+        global lookmovie2_base_url
+        lookmovie2_base_url = url
+        await interaction.followup.send(view=SimpleTextLayout(discord.Color.green(), f"## `{streaming_service.name}` URL har ändrats till: `{url}`", footer="Don't let them catch up"))
+
+help_commands = [
+    app_commands.Choice(name="/play", value="play"),
+    app_commands.Choice(name="/search", value="search"),
+    app_commands.Choice(name="/update", value="update")
+]
 
 @client.tree.command(name="help", description="Visar information och hjälp om hur botten kan användas.", guild=guild_id)
-@app_commands.choices(kommando=[
-    app_commands.Choice(name="/play", value="play"),
-    app_commands.Choice(name="/search", value="search")
-])
+@app_commands.choices(kommando=help_commands)
 async def help_command(interaction: discord.Interaction, kommando: app_commands.Choice[str] = None):
     await interaction.response.defer()
     if kommando is None:
-        await interaction.followup.send(view=SimpleTextLayout(discord.Color.blue(), f"# Disney-", f"Kommandon som går att använda: \n`/play`, `/search`", f"Använd `/help [kommando]` för hjälp angående det specifika kommandot."))
+        await interaction.followup.send(view=SimpleTextLayout(discord.Color.blue(), f"# Disney-", f"## Nuvarande konfig: \n### FlixHQ: \n`{flixhq_base_url}`\n### Lookmovie2: \n`{lookmovie2_base_url}`", f"Kommandon som går att använda: \n{", ".join(f"`{option.name}`" for option in help_commands)}", f"Använd `/help [kommando]` för hjälp angående det specifika kommandot."))
     elif kommando.value == "play":
         await interaction.followup.send(view=SimpleTextLayout(discord.Color.blue(), f"## /play", f"`/play` tar emot en länk till valfri media och spelar upp i Watch2Gether-rummet. Kan vara Youtube, FlixHQ, Lookmovie osv osv. No one really knows.", "### Exempel: \n `/play` https://youtu.be/pXMkcpJN8QI"))
     elif kommando.value == "search":
         await interaction.followup.send(view=SimpleTextLayout(discord.Color.blue(), f"## /search", f"`/search` tar emot en sökning av film eller serie, och ett val från listan av *streamingtjänster* och presenterar resultatet direkt i chatten.", "### Exempel: \n `/search` Jurassic Park `FlixHQ`"))
+    elif kommando.value == "update":
+        await interaction.followup.send(view=SimpleTextLayout(discord.Color.blue(), f"## /update", f"`/search` tar emot ett val av *streamingtjänst* och en URL och uppdaterar botten för att använda den nya URL:en, används när de har tvingats byta domän.", "### Exempel: \n `/update` `FlixHQ` https://flixhq.com"))
 
 async def pagination(interaction: discord.Interaction, pagination_index: int):
     current_movies = movies[pagination_index: pagination_index + page_size if pagination_index + page_size < len(movies) else len(movies)]
